@@ -1,0 +1,22 @@
+pymonster
+=========
+
+.. py:module:: pymonster
+
+.. autoapi-nested-parse::
+
+   Package pymonster
+
+
+
+Submodules
+----------
+
+.. toctree::
+   :maxdepth: 1
+
+   /autoapi/pymonster/module_1/index
+   /autoapi/pymonster/module_2/index
+   /autoapi/pymonster/module_3/index
+
+

@@ -1,0 +1,49 @@
+
+# setup file for project pymonster
+
+[build-system]
+    requires = ["setuptools"]
+    build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+    packages=["pymonster"]
+
+[project]
+    name = "pymonster"
+    version = "0.0.1"
+    description = "A great project"
+    readme = "README.md" 
+    requires-python = ">=3.10, <4"
+    license = {text = "GPL"}
+    authors = [
+        {name = "Rohit Saini", email = "rohit.saini@tha.de"},
+        {name = "Gabriel Corazza", email = "gabriel.corazza@tha.de"},
+        {name = "Royar Nassan", email = "royar.nassan@tha.de"},
+        {name = "Sahlong Tchinda Souleyman", email = "sahlong.tchinda.souleyman@tha.de"},
+        {name = "Kaan Sueruecue", email = "kaan.sueruecue@tha.de"},
+    ]
+    maintainers = [
+        {name = "Rohit Saini", email = "rohit.saini@tha.de"},
+        {name = "Gabriel Corazza", email = "gabriel.corazza@tha.de"},
+        {name = "Royar Nassan", email = "royar.nassan@tha.de"},
+        {name = "Sahlong Tchinda Souleyman", email = "sahlong.tchinda.souleyman@tha.de"},
+        {name = "Kaan Sueruecue", email = "kaan.sueruecue@tha.de"},
+    ]
+    keywords=["example", "project structure"]
+    dependencies = [
+        "setuptools>=61",
+        "numpy>=1.23",
+        "websockets>=10.0",
+    ]
+
+classifiers = [
+        "Development Status :: 3 - Alpha",
+        "Topic :: Demonstration",
+        "License :: GPL License",
+]
+
+[project.urls]
+    Homepage = "http://myUrl.com"
+
+[project.scripts]
+    biester_client= "pymonster.client:client_main"

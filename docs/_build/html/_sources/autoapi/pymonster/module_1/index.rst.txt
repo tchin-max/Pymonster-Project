@@ -1,0 +1,11 @@
+pymonster.module_1
+==================
+
+.. py:module:: pymonster.module_1
+
+.. autoapi-nested-parse::
+
+   TODO: Enter docstring for module module_1
+
+
+

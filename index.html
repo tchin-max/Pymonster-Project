@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Biest Log Visualisierung (Erweitert)</title>
+
+    <!-- Tailwind -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: {
+                        'grid-dark': '#374151',
+                        'grid-light': '#F3F4F6',
+                        'agent-blue': '#3B82F6',
+                        'food-orange': '#F97316',
+                        'enemy-red': '#EF4444',
+                        'enemy-green': '#10B981',
+                        'move-pink': '#EC4899',
+                        'area-purple': '#7C3AED'
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        .grid-cell {
+            aspect-ratio: 1 / 1;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 0.25rem;
+            transition: all 0.1s ease;
+            box-shadow: inset 0 0 0 1px rgba(0,0,0,0.05);
+            overflow: visible;
+        }
+        .grid-container { position: relative; }
+
+        .overlay { position: absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:10; }
+
+        .overlay-point {
+            position: absolute;
+            width: 16%;
+            height: 16%;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            opacity: 0.9;
+            box-shadow: 0 0 5px rgba(0,0,0,0.5);
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.65rem;
+            color: white;
+            font-weight: bold;
+            line-height: 1;
+            border: 2px solid white;
+        }
+
+        /* NEU: Bewegungsbereich (5x5) als lila Rahmen */
+        .move-area {
+            position: absolute;
+            border: 3px solid rgba(124,58,237,0.95); /* area-purple */
+            border-radius: 0.5rem;
+            pointer-events: none;
+            z-index: 12; /* über Grid, unter pink ring (pink ring höher) */
+            box-shadow: 0 0 12px rgba(124,58,237,0.15);
+        }
+
+        /* NEU: pink ring soll stets ganz oben über Overlays liegen */
+        .next-move-ring {
+            box-shadow: 0 0 0 4px rgba(236,72,153,0.9);
+            z-index: 40 !important;
+            position: relative;
+        }
+
+        /* Modal Styling (wie vorher) */
+        .modal { display: none; position: fixed; z-index: 100; left:0; top:0; width:100%; height:100%; overflow:auto; background-color: rgba(0,0,0,0.8); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); justify-content:center; align-items:center; }
+        .modal-content-wrapper { position: relative; background-color:white; padding:1rem; border-radius:1rem; box-shadow:0 10px 25px rgba(0,0,0,0.5); max-width:90vh; max-height:90vw; width:min(90vh,90vw); }
+        .modal .grid-container { gap:0; padding:0; border:none; width:100%; height:100%; }
+        .modal .grid-cell { box-shadow:none; border-radius:0; }
+        .modal .overlay-point { width:10%; height:10%; font-size:0.8rem; }
+        #timelineSlider::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:16px; height:16px; border-radius:50%; background:#3B82F6; cursor:pointer; box-shadow:0 0 5px rgba(0,0,0,0.2); }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-4 sm:p-8 font-sans">
+    <div class="max-w-7xl mx-auto">
+        <header class="mb-6 pb-4 border-b border-gray-300">
+            <h1 class="text-3xl font-bold text-gray-800">Biest Log Visualisierung (Erweitert)</h1>
+        </header>
+
+        <!-- Uploads + Runden-Steuerung -->
+        <div class="flex flex-col sm:flex-row items-center justify-between mb-6 space-y-4 sm:space-y-0">
+            <div class="flex items-center space-x-3">
+                <label class="text-sm text-gray-700">Spiel-Log (NDJSON):</label>
+                <input type="file" id="fileInput" accept=".txt,.log,.ndjson,.json" class="text-sm rounded-full cursor-pointer">
+            </div>
+
+            <!-- --- NEU: Server-Logs Upload --- -->
+            <div class="flex items-center space-x-3">
+                <label class="text-sm text-gray-700">Server-Logs (NDJSON):</label>
+                <input type="file" id="serverLogInput" accept=".txt,.log,.ndjson,.json" class="text-sm rounded-full cursor-pointer">
+            </div>
+
+            <div id="roundControls" class="flex items-center space-x-2 w-full sm:w-auto">
+                <button id="prevRound" class="p-2 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 disabled:opacity-50 transition" disabled>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" /></svg>
+                </button>
+                <span id="roundIndicator" class="text-lg font-semibold text-gray-700 min-w-[140px] text-center">Runde 0 / 0</span>
+                <button id="nextRound" class="p-2 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 disabled:opacity-50 transition" disabled>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" /></svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Timeline & Playback -->
+        <div class="bg-white p-4 rounded-xl shadow-lg mb-6">
+            <h3 class="text-lg font-semibold mb-2 text-gray-800">Zeitstrahl & Wiedergabe</h3>
+            <div class="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-4">
+                <input type="range" id="timelineSlider" min="0" max="0" value="0" disabled class="w-full md:w-auto flex-grow h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                <div class="flex items-center space-x-3">
+                    <button id="playPauseButton" class="p-2 bg-agent-blue text-white rounded-full hover:bg-blue-600 disabled:opacity-50 transition" disabled>
+                        <svg id="playIcon" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="currentColor"><path d="M6 3l15 9-15 9V3z"/></svg>
+                        <svg id="pauseIcon" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 hidden" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                    </button>
+                    <div class="flex items-center space-x-1 bg-gray-100 p-2 rounded-lg">
+                        <label for="fpsInput" class="text-sm text-gray-600 whitespace-nowrap">FPS:</label>
+                        <input type="number" id="fpsInput" value="4" min="1" max="60" class="w-16 p-1 border border-gray-300 rounded-md text-center text-sm">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- GRID mit 4 Spalten (links: env, mitte-left: board, mitte-right: lists, rechts: server logs) -->
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <!-- links: env + agent info -->
+            <div class="lg:col-span-1 bg-white p-6 rounded-xl shadow-lg h-full">
+                <h2 class="text-xl font-bold mb-3 text-gray-800">Sichtfeld (Env String)</h2>
+                <div id="envGridDisplay" class="grid grid-cols-7 gap-1 p-2 bg-gray-100 rounded-lg text-center text-xs font-mono"></div>
+
+                <h2 class="text-xl font-bold mb-4 text-gray-800 border-t pt-4">Biest-Status</h2>
+                <div id="agentStatus" class="space-y-3">
+                    <p class="text-gray-600"><span class="font-semibold text-gray-800">Runde:</span> <span id="infoRound">N/A</span></p>
+                    <p class="text-gray-600"><span class="font-semibold text-gray-800">Event:</span> <span id="infoEvent">N/A</span></p>
+                    <p class="text-gray-600"><span class="font-semibold text-gray-800">Biest ID (Bid):</span> <span id="infoBid">N/A</span></p>
+                    <p class="text-gray-600"><span class="font-semibold text-gray-800">Energie (Energ):</span> <span id="infoEnerg">N/A</span></p>
+                    <p class="text-gray-600"><span class="font-semibold text-gray-800">Nächster Zug (Move):</span> <span id="infoMove">N/A</span></p>
+                </div>
+            </div>
+
+            <!-- mittig: Spielfeld -->
+            <div class="lg:col-span-1 bg-white p-4 rounded-xl shadow-lg flex justify-center items-center flex-col">
+                <div id="coordinateWrapper" class="flex flex-col w-full max-w-sm">
+                    <div class="flex justify-between text-sm text-gray-600 px-1 pt-1 font-mono">
+                        <span class="axis-label">-3</span><span class="axis-label">-2</span><span class="axis-label">-1</span><span class="axis-label">0</span><span class="axis-label">1</span><span class="axis-label">2</span><span class="axis-label">3</span>
+                    </div>
+
+                    <div class="flex flex-grow">
+                        <div class="flex flex-col justify-between text-sm text-gray-600 pr-2 pt-1 pb-1 font-mono">
+                            <span>-3</span><span>-2</span><span>-1</span><span>0</span><span>1</span><span>2</span><span>3</span>
+                        </div>
+
+                        <!-- GRID CONTAINER -->
+                        <div id="gridContainer" class="grid-container w-full aspect-square border-4 border-gray-400 rounded-lg relative overflow-hidden grid grid-cols-7 gap-1 p-1">
+                            <!-- JS füllt die 7x7 Zellen -->
+                            <!-- NEU: move-area absolute div wird per JS erstellt -->
+                        </div>
+                    </div>
+                </div>
+
+                <button id="zoomButton" class="mt-4 p-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 disabled:opacity-50 transition flex items-center space-x-2" disabled>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
+                    <span>Spielfeld vergrößern (Zoom)</span>
+                </button>
+
+                <div class="mt-6 p-4 bg-gray-50 rounded-lg w-full max-w-sm border border-gray-200">
+                    <h3 class="font-bold text-gray-800 mb-2">Spielfeld Legende</h3>
+                    <div class="grid grid-cols-2 gap-2 text-sm text-gray-700">
+                        <p><span class="inline-block w-3 h-3 bg-agent-blue rounded-full mr-2"></span> B: Biest (Du)</p>
+                        <p><span class="inline-block w-3 h-3 bg-food-orange rounded-full mr-2"></span> F: Futter (*)</p>
+                        <p><span class="inline-block w-3 h-3 bg-enemy-red rounded-full mr-2"></span> E: Großer Gegner (>, =)</p>
+                        <p><span class="inline-block w-3 h-3 bg-enemy-green rounded-full mr-2"></span> e: Kleiner Gegner (&lt;)</p>
+                        <p><span class="inline-block w-3 h-3 ring-2 ring-offset-2 ring-move-pink rounded-full mr-2"></span> Pinker Rahmen: Nächster Zug (Move)</p>
+                        <p><span class="inline-block w-3 h-3 ring-2 ring-offset-2 ring-area-purple rounded-full mr-2"></span> Lila Rahmen: Bewegungsbereich 5x5</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- rechts-mitte: Prioritäten & Listen -->
+            <div class="lg:col-span-1 bg-white p-6 rounded-xl shadow-lg h-full">
+                <h2 class="text-xl font-bold mb-4 text-gray-800">Prioritäten & Listen</h2>
+                <div id="priorityLists" class="space-y-4">
+                    <div class="border-b pb-2">
+                        <div class="flex items-start justify-between">
+                            <div class="flex flex-col">
+                                <span class="font-semibold text-gray-800">Futter-Liste (Foodlist)</span>
+                                <span class="text-sm text-gray-600">Prio: <span id="prioFood">N/A</span></span>
+                            </div>
+                            <button class="eye-icon text-gray-400 hover:text-food-orange" data-list="foodlist">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                            </button>
+                        </div>
+                        <div id="listFoodCoords" class="text-xs text-gray-500 mt-1 font-mono break-all"></div>
+                    </div>
+
+                    <div class="border-b pb-2">
+                        <div class="flex items-start justify-between">
+                            <div class="flex flex-col">
+                                <span class="font-semibold text-gray-800">Jagd-Liste (Huntlist)</span>
+                                <span class="text-sm text-gray-600">Prio: <span id="prioHunt">N/A</span></span>
+                            </div>
+                            <button class="eye-icon text-gray-400 hover:text-enemy-red" data-list="huntlist">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                            </button>
+                        </div>
+                        <div id="listHuntCoords" class="text-xs text-gray-500 mt-1 font-mono break-all"></div>
+                    </div>
+
+                    <div class="border-b pb-2">
+                        <div class="flex items-start justify-between">
+                            <div class="flex flex-col">
+                                <span class="font-semibold text-gray-800">Flucht-Liste (Escapelist)</span>
+                                <span class="text-sm text-gray-600">Prio: <span id="prioEscape">N/A</span></span>
+                            </div>
+                            <button class="eye-icon text-gray-400 hover:text-move-pink" data-list="escapelist">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                            </button>
+                        </div>
+                        <div id="listEscapeCoords" class="text-xs text-gray-500 mt-1 font-mono break-all"></div>
+                    </div>
+
+                    <div class="text-sm pt-4 text-gray-500">
+                        <p><span class="inline-block w-3 h-3 bg-food-orange rounded-full"></span> = Futter-Ziel</p>
+                        <p><span class="inline-block w-3 h-3 bg-enemy-red rounded-full"></span> = Jagd-Ziel</p>
+                        <p><span class="inline-block w-3 h-3 bg-move-pink rounded-full"></span> = Flucht-Ziel</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- --- NEU: Server-Logs Panel (rechts außen) --- -->
+            <div class="lg:col-span-1 bg-white p-4 rounded-xl shadow-lg h-full overflow-auto">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-xl font-bold text-gray-800">Server-Logs</h2>
+                    <span id="serverLogStatus" class="text-sm text-gray-500">keine Logs</span>
+                </div>
+                <div id="serverLogsContainer" class="text-sm font-mono text-gray-700 space-y-2">
+                    <!-- Gefilterte Logs für aktuelle Runde werden hier angezeigt -->
+                    <div class="text-gray-400">Lade Server-Logs hoch, um Einträge anzuzeigen.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Zoom Modal -->
+    <div id="zoomModal" class="modal" onclick="closeModal(event)">
+        <div class="modal-content-wrapper" onclick="event.stopPropagation()">
+            <div class="flex justify-between text-sm text-gray-400 px-1 pt-1 font-mono">
+                <span class="axis-label">-3</span><span class="axis-label">-2</span><span class="axis-label">-1</span><span class="axis-label">0</span><span class="axis-label">1</span><span class="axis-label">2</span><span class="axis-label">3</span>
+            </div>
+
+            <div class="flex flex-grow w-full h-full">
+                <div class="flex flex-col justify-between text-sm text-gray-400 pr-2 pt-1 pb-1 font-mono">
+                    <span>-3</span><span>-2</span><span>-1</span><span>0</span><span>1</span><span>2</span><span>3</span>
+                </div>
+
+                <div id="gridContainerModal" class="grid-container w-full aspect-square relative overflow-hidden grid grid-cols-7 border-4 border-gray-300 rounded-xl"></div>
+            </div>
+
+            <button class="absolute top-2 right-2 text-white text-3xl font-bold hover:text-gray-300 transition" onclick="closeModal()">×</button>
+            <div class="absolute bottom-2 left-1/2 transform -translate-x-1/2 text-sm text-gray-400">
+                <span id="modalRoundIndicator"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- List Modal -->
+    <div id="listModal" class="modal" onclick="closeListModal(event)">
+        <div class="modal-content-wrapper max-w-lg" onclick="event.stopPropagation()">
+            <div class="flex justify-between items-start">
+                <h3 id="listModalTitle" class="text-lg font-bold">Liste</h3>
+                <button class="text-gray-500 hover:text-gray-700 text-2xl" onclick="closeListModal()">&times;</button>
+            </div>
+            <div id="listModalContent" class="mt-3 text-sm font-mono text-gray-700 leading-relaxed max-h-80 overflow-auto"></div>
+        </div>
+    </div>
+
+<script>
+/* ================================
+   Variablen & DOM-Referenzen
+   ================================ */
+let logData = [];
+let serverLogs = [];
+let currentRoundIndex = 0;
+const GRID_SIZE = 7;
+const GRID_CENTER = Math.floor(GRID_SIZE/2);
+let activeListForOverlay = null; // 'foodlist' | 'huntlist' | 'escapelist'
+
+const fileInput = document.getElementById('fileInput');
+const serverLogInput = document.getElementById('serverLogInput'); // --- NEU ---
+const gridContainer = document.getElementById('gridContainer');
+const gridContainerModal = document.getElementById('gridContainerModal');
+const envGridDisplay = document.getElementById('envGridDisplay');
+const roundIndicator = document.getElementById('roundIndicator');
+const prevRoundButton = document.getElementById('prevRound');
+const nextRoundButton = document.getElementById('nextRound');
+const timelineSlider = document.getElementById('timelineSlider');
+const playPauseButton = document.getElementById('playPauseButton');
+const playIcon = document.getElementById('playIcon');
+const pauseIcon = document.getElementById('pauseIcon');
+const fpsInput = document.getElementById('fpsInput');
+const zoomButton = document.getElementById('zoomButton');
+const zoomModal = document.getElementById('zoomModal');
+const modalRoundIndicator = document.getElementById('modalRoundIndicator');
+const serverLogsContainer = document.getElementById('serverLogsContainer');
+const serverLogStatus = document.getElementById('serverLogStatus');
+
+let playbackInterval = null;
+let isPlaying = false;
+
+/* ================================
+   Hilfsfunktionen
+   ================================ */
+function coordsToStringIndex(x,y){
+    const rowIndex = y + GRID_CENTER;
+    const colIndex = x + GRID_CENTER;
+    return rowIndex * GRID_SIZE + colIndex;
+}
+function coordsToPercent(x,y){
+    const left = (x + GRID_CENTER + 0.5) * (100 / GRID_SIZE);
+    const top  = (y + GRID_CENTER + 0.5) * (100 / GRID_SIZE);
+    return { left, top };
+}
+
+/* ------------- Format Listen HTML (wie vorher) ------------- */
+function formatCoordsListHTML(list, basePriority, nextMove, title) {
+    if (!list || list.length === 0) return '[]';
+    const items = list.map((c,i)=>{
+        const priority = basePriority - i;
+        const coordString = `[${c.join(', ')}]`;
+        const isNext = nextMove && c.length===2 && c[0]===nextMove[0] && c[1]===nextMove[1];
+        const text = `(${priority}) ${coordString}`;
+        return isNext ? `<span class="text-move-pink font-bold border-b-2 border-move-pink">${text}</span>` : text;
+    });
+    const visible = items.slice(0,5);
+    let html = visible.join(', ');
+    if (list.length > 5) {
+        const payload = encodeURIComponent(JSON.stringify(list));
+        html += `, <button class="show-full-list underline text-sm" data-list-enc="${payload}" data-title="${title}">... (${list.length - 5} weitere)</button>`;
+    }
+    return html;
+}
+
+/* ------------- Erstelle 7x7 Grid Zellen ------------- */
+/* Wichtig: die Klasse 'next-move-ring' wird auf die Zelle gesetzt, damit sie über Overlays liegt. */
+function createGridCells(data, container, isModal){
+    container.innerHTML = '';
+    const env = data.env || ''.padEnd(49, '.');
+    const nextMove = (data.move && data.move.length===2) ? data.move : null;
+
+    for (let y=-GRID_CENTER; y<=GRID_CENTER; y++){
+        for (let x=-GRID_CENTER; x<=GRID_CENTER; x++){
+            const index = coordsToStringIndex(x,y);
+            const cellChar = env[index] || '.';
+            const isAgent = x===0 && y===0;
+            const isNextMove = nextMove && x===nextMove[0] && y===nextMove[1];
+
+            let cellColor = isModal ? 'bg-gray-200' : 'bg-grid-light';
+            let content = '';
+
+            if (cellChar === '*') { cellColor = 'bg-food-orange'; content = 'F'; }
+            else if (cellChar === '>' || cellChar === '=') { cellColor = 'bg-enemy-red'; content = 'E'; }
+            else if (cellChar === '<') { cellColor = 'bg-enemy-green'; content = 'e'; }
+            else { cellColor = isModal ? 'bg-gray-200' : 'bg-gray-200'; content = ''; }
+
+            if (isAgent){ cellColor = 'bg-agent-blue'; content = 'B'; }
+
+            const cellDiv = document.createElement('div');
+            cellDiv.className = `grid-cell ${cellColor} font-bold text-white text-xs shadow-inner`;
+            if (isModal) cellDiv.classList.add('text-lg');
+
+            // Wenn dies die Next-Move-Zelle ist, füge klasse hinzu (sichtbar über overlay)
+            if (isNextMove){
+                cellDiv.classList.add('next-move-ring');
+            }
+
+            cellDiv.innerHTML = `<span class="absolute">${content}</span>`;
+            // data-attribute für mögliche referenzen
+            cellDiv.dataset.coord = `${x},${y}`;
+            container.appendChild(cellDiv);
+        }
+    }
+}
+
+/* ------------- Render Grid & Modal & Area ------------- */
+function renderGrid(data){
+    createGridCells(data, gridContainer, false);
+    ensureMoveAreaDiv(); // NEU: stelle Move-Area dar
+    placeMoveArea();     // NEU: berechne Position
+    // Sicherstellen, dass pink ring sichtbar ist (ring hat hohe z-index)
+    if (zoomModal.style.display === 'flex'){
+        updateModalContent(data);
+    }
+}
+
+function renderEnvGrid(envString){
+    envGridDisplay.innerHTML = '';
+    for (let i=0;i<envString.length;i++){
+        const char = envString[i];
+        const cellDiv = document.createElement('div');
+        cellDiv.textContent = char;
+        let cellClass = 'p-1 aspect-square bg-gray-200 rounded-sm flex items-center justify-center font-mono';
+        if (char === '*') cellClass += ' text-food-orange font-bold';
+        else if (char === '>' || char === '=') cellClass += ' text-enemy-red font-bold';
+        else if (char === '<') cellClass += ' text-enemy-green font-bold';
+        else if (i === coordsToStringIndex(0,0)) cellClass += ' text-agent-blue font-bold';
+        cellDiv.className = cellClass;
+        envGridDisplay.appendChild(cellDiv);
+    }
+}
+
+/* ------------- Info-Panel Render ------------- */
+function renderInfo(data){
+    document.getElementById('infoRound').textContent = data.round;
+    document.getElementById('infoEvent').textContent = data.event;
+    document.getElementById('infoBid').textContent = data.bid;
+    document.getElementById('infoEnerg').textContent = (typeof data.energ === 'number') ? data.energ.toFixed(2) : data.energ;
+    document.getElementById('infoMove').textContent = data.move ? `[${data.move.join(', ')}]` : 'N/A';
+
+    const prioFood = parseInt(data.priorityfood) || 0;
+    const prioHunt = parseInt(data.priorityhunt) || 0;
+    const prioEscape = parseInt(data.priorityescape) || 0;
+
+    document.getElementById('prioFood').textContent = prioFood;
+    document.getElementById('prioHunt').textContent = prioHunt;
+    document.getElementById('prioEscape').textContent = prioEscape;
+
+    const nextMove = (data.move && data.move.length===2) ? data.move : null;
+    document.getElementById('listFoodCoords').innerHTML = formatCoordsListHTML(data.foodlist, prioFood, nextMove, 'Futter-Liste');
+    document.getElementById('listHuntCoords').innerHTML = formatCoordsListHTML(data.huntlist, prioHunt, nextMove, 'Jagd-Liste');
+    document.getElementById('listEscapeCoords').innerHTML = formatCoordsListHTML(data.escapelist, prioEscape, nextMove, 'Flucht-Liste');
+}
+
+/* ------------- Playback / Timeline ------------- */
+function togglePlayback(shouldPlay = !isPlaying){
+    isPlaying = shouldPlay;
+    if (playbackInterval){ clearInterval(playbackInterval); playbackInterval = null; }
+    if (isPlaying){
+        if (currentRoundIndex >= logData.length - 1) goToRound(0);
+        const fps = parseInt(fpsInput.value) || 4;
+        const intervalMs = 1000 / fps;
+        playbackInterval = setInterval(()=>{
+            if (currentRoundIndex < logData.length - 1) goToRound(currentRoundIndex + 1);
+            else togglePlayback(false);
+        }, intervalMs);
+        playIcon.classList.add('hidden'); pauseIcon.classList.remove('hidden');
+        playPauseButton.classList.remove('bg-agent-blue','hover:bg-blue-600');
+        playPauseButton.classList.add('bg-move-pink','hover:bg-pink-600');
+    } else {
+        pauseIcon.classList.add('hidden'); playIcon.classList.remove('hidden');
+        playPauseButton.classList.remove('bg-move-pink','hover:bg-pink-600');
+        playPauseButton.classList.add('bg-agent-blue','hover:bg-blue-600');
+    }
+}
+
+/* ------------- Move-Area Darstellung (5x5 von -2,-2 bis 2,2) ------------- */
+/* NEU: Erzeuge ein div.overlay-Element mit Klassen .move-area, berechne left/top/width/height in Prozent */
+function ensureMoveAreaDiv(){
+    let area = document.getElementById('moveAreaDiv');
+    if (!area){
+        area = document.createElement('div');
+        area.id = 'moveAreaDiv';
+        area.className = 'move-area';
+        gridContainer.appendChild(area);
+    }
+}
+function placeMoveArea(){
+    const x0 = -2, y0 = -2, x1 = 2, y1 = 2;
+    // linke obere Ecke von x0,y0 und rechte untere Ecke x1,y1 in Prozent
+    const leftPercent = (x0 + GRID_CENTER) * (100 / GRID_SIZE) + (100/GRID_SIZE)*0.02;
+    const topPercent  = (y0 + GRID_CENTER) * (100 / GRID_SIZE) + (100/GRID_SIZE)*0.02;
+    const widthPct = (x1 - x0 + 1) * (100 / GRID_SIZE) - (100/GRID_SIZE)*0.04;
+    const heightPct = (y1 - y0 + 1) * (100 / GRID_SIZE) - (100/GRID_SIZE)*0.04;
+    const area = document.getElementById('moveAreaDiv');
+    if (area){
+        area.style.left = `${leftPercent}%`;
+        area.style.top = `${topPercent}%`;
+        area.style.width = `${widthPct}%`;
+        area.style.height = `${heightPct}%`;
+    }
+}
+
+/* ------------- Overlay für Listen (Punkte) ------------- */
+function showListOverlay(listName){
+    const container = (zoomModal.style.display === 'flex') ? gridContainerModal : gridContainer;
+    if (!container) return;
+    // Entferne vorhandene Overlay
+    const existing = container.querySelector('.overlay');
+    if (existing) existing.remove();
+
+    activeListForOverlay = listName;
+    const currentData = logData[currentRoundIndex];
+    const list = currentData[listName] || [];
+
+    const overlayDiv = document.createElement('div');
+    overlayDiv.className = 'overlay rounded-lg';
+    overlayDiv.id = 'listOverlay';
+
+    // Farbe je Liste
+    let pointColor = '';
+    if (listName === 'foodlist') pointColor = 'bg-food-orange';
+    else if (listName === 'huntlist') pointColor = 'bg-enemy-red';
+    else if (listName === 'escapelist') pointColor = 'bg-move-pink';
+
+    const basePriorityKey = 'priority' + listName.replace('list','');
+    const basePriority = parseInt(currentData[basePriorityKey]) || 0;
+
+    list.forEach((coords,i)=>{
+        if (!coords || coords.length!==2) return;
+        const [x,y] = coords;
+        if (x < -GRID_CENTER || x > GRID_CENTER || y < -GRID_CENTER || y > GRID_CENTER) return;
+        const { left, top } = coordsToPercent(x,y);
+
+        const pointDiv = document.createElement('div');
+        pointDiv.className = `overlay-point ${pointColor}`;
+        pointDiv.style.left = `${left}%`;
+        pointDiv.style.top  = `${top}%`;
+        const priorityValue = basePriority - i;
+        pointDiv.textContent = priorityValue;
+
+        overlayDiv.appendChild(pointDiv);
+    });
+
+    container.appendChild(overlayDiv);
+
+    // Stelle sicher, dass next-move ring über der overlay liegt:
+    elevateNextMoveRing(container);
+}
+
+function hideOverlay(){
+    activeListForOverlay = null;
+    gridContainer.querySelectorAll('.overlay').forEach(el => el.remove());
+    gridContainerModal.querySelectorAll('.overlay').forEach(el => el.remove());
+}
+
+/* ------------- Hebe Next-Move-Zelle optisch hervor (sorgt dafür, dass Ring über Overlay liegt) ------------- */
+function elevateNextMoveRing(container){
+    // Finde ring in container und stelle sicher, dass es z-index hoch ist
+    const ring = container.querySelector('.next-move-ring');
+    if (ring){
+        ring.style.position = 'relative';
+        ring.style.zIndex = '40';
+    }
+}
+
+/* ------------- Modal-Update (Zoom) ------------- */
+function updateModalContent(data){
+    createGridCells(data, gridContainerModal, true);
+    // Kopiere Overlay, falls aktiv
+    if (activeListForOverlay) showListOverlay(activeListForOverlay);
+    modalRoundIndicator.textContent = `Runde ${data.round} / ${logData.length>0 ? logData[logData.length-1].round : 0}`;
+    // Falls Next-Move vorhanden -> ensure ring above overlays
+    elevateNextMoveRing(gridContainerModal);
+}
+
+/* ------------- Modal Open/Close ------------- */
+function openModal(){ if (logData.length===0) return; zoomModal.style.display = 'flex'; updateModalContent(logData[currentRoundIndex]); }
+function closeModal(event){ if (!event || event.target === zoomModal){ zoomModal.style.display = 'none';
+    // Wenn overlay aktiv, rekonstruiere sie auf main grid (weiche Übergabe)
+    if (activeListForOverlay){
+        const temp = activeListForOverlay;
+        hideOverlay();
+        showListOverlay(temp);
+    }
+}}
+
+/* ------------- Listen Modal ------------- */
+function showFullListModal(title, list, basePriority){
+    document.getElementById('listModalTitle').textContent = title;
+    if (!list || list.length===0){ document.getElementById('listModalContent').innerHTML = '<div class="text-gray-500">(leer)</div>'; }
+    else {
+        const html = list.map((c,i)=>{
+            const prio = basePriority - i; return `<div>(${prio}) [${c[0]}, ${c[1]}]</div>`;
+        }).join('');
+        document.getElementById('listModalContent').innerHTML = html;
+    }
+    document.getElementById('listModal').style.display = 'flex';
+}
+function closeListModal(event){ if (!event || event.target === document.getElementById('listModal')) document.getElementById('listModal').style.display = 'none'; }
+
+/* ------------- Runden-Navigation ------------- */
+function goToRound(index){
+    if (logData.length === 0) return;
+    if (index >= 0 && index < logData.length){
+        currentRoundIndex = index;
+        const currentData = logData[currentRoundIndex];
+
+        const maxRound = logData[logData.length - 1].round;
+        roundIndicator.textContent = `Runde ${currentData.round} / ${maxRound}`;
+        document.getElementById('modalRoundIndicator').textContent = `Runde ${currentData.round} / ${maxRound}`;
+
+        timelineSlider.value = index;
+        renderGrid(currentData);
+        renderInfo(currentData);
+        renderEnvGrid(currentData.env);
+
+        prevRoundButton.disabled = currentRoundIndex === 0;
+        nextRoundButton.disabled = currentRoundIndex === logData.length - 1;
+
+        // Overlays neu zeichnen (falls aktiv)
+        hideOverlay();
+        if (activeListForOverlay) {
+            showListOverlay(activeListForOverlay);
+        }
+
+        // Aktualisiere Server-Log Anzeige (gefiltert)
+        renderServerLogsForRound(currentData.round);
+    }
+}
+
+/* ================================
+   Server-Logs Handling (NEU)
+   - serverLogs: Array von Objekten {round, servermsg, exception}
+   - Anzeige: nur Einträge mit round === aktuelle Runde
+   ================================ */
+function parseNDJSONContentToArray(text){
+    // Robust: akzeptiert CRLF/CR und filtert ungültige Zeilen
+    const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(l=>l.length>0);
+    const arr = [];
+    for (const line of lines){
+        try { const obj = JSON.parse(line); arr.push(obj); }
+        catch(e){ console.warn('Ungültige NDJSON-Zeile ignoriert:', line); }
+    }
+    return arr;
+}
+
+function renderServerLogsForRound(roundNumber){
+    serverLogsContainer.innerHTML = '';
+    if (!serverLogs || serverLogs.length === 0){
+        serverLogsContainer.innerHTML = '<div class="text-gray-400">Keine Server-Logs verfügbar.</div>';
+        serverLogStatus.textContent = 'keine Logs';
+        return;
+    }
+    const filtered = serverLogs.filter(l => parseInt(l.round) === parseInt(roundNumber));
+    if (filtered.length === 0){
+        serverLogsContainer.innerHTML = `<div class="text-gray-500">Keine Logs für Runde ${roundNumber}.</div>`;
+        serverLogStatus.textContent = `runde ${roundNumber}: 0 Einträge`;
+        return;
+    }
+    filtered.forEach((entry)=>{
+        const wrapper = document.createElement('div');
+        wrapper.className = 'p-2 border rounded-md bg-gray-50';
+        const timeStr = entry.time ? `<div class="text-xs text-gray-400">Zeit: ${entry.time}</div>` : '';
+        wrapper.innerHTML = `
+            <div class="font-semibold text-sm text-gray-800">Round ${entry.round}</div>
+            ${timeStr}
+            <div class="text-sm text-gray-700 mt-1">${escapeHtml(entry.servermsg || '')}</div>
+            ${entry.exception ? `<div class="text-xs text-red-600 mt-1 font-mono">${escapeHtml(entry.exception)}</div>` : ''}
+        `;
+        serverLogsContainer.appendChild(wrapper);
+    });
+    serverLogStatus.textContent = `runde ${roundNumber}: ${filtered.length} Einträge`;
+}
+function escapeHtml(s){
+    return String(s).replace(/[&<>]/g, (c)=> ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+}
+
+/* ================================
+   Event Listener: Datei Uploads
+   ================================ */
+
+fileInput.addEventListener('change', (e)=>{
+    const file = e.target.files[0];
+    if (!file) return;
+    togglePlayback(false);
+    const reader = new FileReader();
+    reader.onload = function(ev){
+        const content = ev.target.result;
+        try {
+            const parsed = parseNDJSONContentToArray(content);
+            logData = parsed;
+            if (logData.length > 0){
+                timelineSlider.max = logData.length - 1;
+                timelineSlider.disabled = false;
+                playPauseButton.disabled = false;
+                zoomButton.disabled = false;
+                const maxRound = logData[logData.length - 1].round;
+                roundIndicator.textContent = `Runde ${logData[0].round} / ${maxRound}`;
+                goToRound(0);
+            } else {
+                timelineSlider.max = 0; timelineSlider.disabled = true; playPauseButton.disabled = true; zoomButton.disabled = true;
+                roundIndicator.textContent = "Runde 0 / 0";
+                alert('Datei enthält keine gültigen JSON-Einträge.');
+            }
+        } catch(err){
+            console.error('Fehler beim Parsen', err);
+            alert('Fehler beim Parsen der Log-Datei. Stelle sicher, dass jede Zeile ein JSON-Objekt ist.');
+        }
+    };
+    reader.readAsText(file);
+});
+
+// --- NEU: Server Log Upload ---
+serverLogInput.addEventListener('change', (e)=>{
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(ev){
+        const content = ev.target.result;
+        try {
+            const parsed = parseNDJSONContentToArray(content);
+            serverLogs = parsed;
+            serverLogStatus.textContent = `geladen (${serverLogs.length})`;
+            // sofort Filterung für aktuelle Runde anzeigen, falls schon Daten geladen
+            if (logData.length > 0){
+                const roundNum = logData[currentRoundIndex].round;
+                renderServerLogsForRound(roundNum);
+            } else {
+                renderServerLogsForRound(null);
+            }
+        } catch(err){
+            console.error('Fehler beim Parsen der Server Logs', err);
+            alert('Fehler beim Parsen der Server-Logs-Datei.');
+        }
+    };
+    reader.readAsText(file);
+});
+
+/* ================================
+   Kontroll-EventListener (Buttons / Slider)
+   ================================ */
+
+prevRoundButton.addEventListener('click', ()=>{
+    togglePlayback(false);
+    goToRound(currentRoundIndex - 1);
+});
+nextRoundButton.addEventListener('click', ()=>{
+    togglePlayback(false);
+    goToRound(currentRoundIndex + 1);
+});
+timelineSlider.addEventListener('input', (e)=>{
+    togglePlayback(false);
+    goToRound(parseInt(e.target.value));
+});
+playPauseButton.addEventListener('click', ()=>{
+    if (logData.length > 0) togglePlayback();
+});
+fpsInput.addEventListener('change', ()=>{
+    const val = parseInt(fpsInput.value);
+    if (val < 1) fpsInput.value = 1;
+    if (val > 60) fpsInput.value = 60;
+    if (isPlaying){ togglePlayback(false); togglePlayback(true); }
+});
+zoomButton.addEventListener('click', openModal);
+window.addEventListener('keydown', (e)=>{ if (e.key === 'Escape'){ closeModal(); closeListModal(); } });
+
+/* ================================
+   Priority Lists Interaction (Overlay & '...') 
+   - Wenn eye-icon geklickt -> overlay (und ring bleibt sichtbar)
+   - Wenn "..." geklickt -> modal mit kompletter Liste
+   ================================ */
+document.getElementById('priorityLists').addEventListener('click', (e)=>{
+    const button = e.target.closest('.eye-icon');
+    if (button){
+        const listName = button.dataset.list;
+        const isActive = button.classList.contains('text-agent-blue') && activeListForOverlay === listName;
+        document.querySelectorAll('.eye-icon').forEach(btn => btn.classList.remove('text-agent-blue','font-bold'));
+        hideOverlay();
+        if (!isActive){
+            button.classList.add('text-agent-blue','font-bold');
+            showListOverlay(listName);
+            activeListForOverlay = listName;
+        } else {
+            activeListForOverlay = null;
+        }
+    }
+
+    const fullBtn = e.target.closest('.show-full-list');
+    if (fullBtn){
+        const enc = fullBtn.dataset.listEnc;
+        const title = fullBtn.dataset.title || 'Liste';
+        try {
+            const decoded = JSON.parse(decodeURIComponent(enc));
+            let basePrio = 0;
+            if (title.toLowerCase().includes('futter')) basePrio = parseInt(document.getElementById('prioFood').textContent) || 0;
+            else if (title.toLowerCase().includes('jagd')) basePrio = parseInt(document.getElementById('prioHunt').textContent) || 0;
+            else if (title.toLowerCase().includes('flucht')) basePrio = parseInt(document.getElementById('prioEscape').textContent) || 0;
+            showFullListModal(title, decoded, basePrio);
+        } catch(err){
+            console.error('Fehler beim Dekodieren der Liste', err);
+        }
+    }
+});
+
+/* ================================
+   Utility: stelle sicher, dass move-area vorhanden ist beim initialen load
+   und setze initiale Grid (falls keine Daten vorhanden)
+   ================================ */
+function renderEmptyGrid(){
+    const dummy = { env: '.'.repeat(49), round: 0, event: '', bid: '', energ: 0, move: null, foodlist: [], huntlist: [], escapelist: [], priorityfood: 0, priorityhunt: 0, priorityescape: 0 };
+    createGridCells(dummy, gridContainer, false);
+    ensureMoveAreaDiv();
+    placeMoveArea();
+}
+
+/* ================================
+   Initialisierung
+   ================================ */
+renderEmptyGrid();
+goToRound(0); // sorgt für initiale UI-Stabilität
+
+</script>
+</body>
+</html>

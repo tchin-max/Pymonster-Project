@@ -1,0 +1,27 @@
+Metadata-Version: 2.4
+Name: pymonster
+Version: 0.0.1
+Summary: A great project
+Author-email: Rohit Saini <rohit.saini@tha.de>, Gabriel Corazza <gabriel.corazza@tha.de>, Royar Nassan <royar.nassan@tha.de>, Sahlong Tchinda Souleyman <sahlong.tchinda.souleyman@tha.de>, Kaan Sueruecue <kaan.sueruecue@tha.de>
+Maintainer-email: Rohit Saini <rohit.saini@tha.de>, Gabriel Corazza <gabriel.corazza@tha.de>, Royar Nassan <royar.nassan@tha.de>, Sahlong Tchinda Souleyman <sahlong.tchinda.souleyman@tha.de>, Kaan Sueruecue <kaan.sueruecue@tha.de>
+License: GPL
+Project-URL: Homepage, http://myUrl.com
+Keywords: example,project structure
+Classifier: Development Status :: 3 - Alpha
+Classifier: Topic :: Demonstration
+Classifier: License :: GPL License
+Requires-Python: <4,>=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: setuptools>=61
+Requires-Dist: numpy>=1.23
+Requires-Dist: websockets>=10.0
+
+<h1> Struktur/Architektur </h1>
+
+![Transport](https://i.ibb.co/3YM22M4W/struktur.jpg)
+
+![Klassendiagramm](https://i.ibb.co/BKyHTn4D/image.png)
+
+![3-Stufen Strategie](https://i.ibb.co/BWwNtyn/3-Stufen-Strategie.jpg)
+
+![Gehirn und Module](https://i.ibb.co/cStS9LzF/image.png)
